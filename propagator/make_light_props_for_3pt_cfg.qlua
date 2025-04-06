@@ -1,0 +1,491 @@
+-- require "strict"
+require "stdlib"
+require "lhpc-std"
+require "gauge"
+require "ape-smear"
+require "wuppertal-smear"
+require "stout-smear"
+require "seqsource"
+require "make_mg_solver"
+
+require "coulgauss_smear"
+require "geom"
+-- require "rcparams"
+require "field_smear"
+
+-- cfg = 1776
+
+stream = "_b_"
+cfgstream = "b_"
+
+-- cl21_32_96_b6p1_m0p2850_m0p2450_b_cfg_2424.lime
+
+cfg_filename="/pscratch/sd/e/engel/cfgs/cl21_32_96_b6p1_m0p2850_m0p2450_" .. cfgstream .. "cfg_" .. tostring(cfg) .. ".lime"
+
+
+
+-- prop file location
+data_top = "/pscratch/sd/h/hari_8/saved_prop_files/"
+
+
+-- sources
+sources = {{0, 0, 0, 0}, {8, 0, 0, 0}, {16, 0, 0, 0}, {24, 0, 0, 0}, {0, 8, 0, 0}, {0, 16, 0, 0}, {0, 24, 0, 0}, {0, 0, 8, 0}, {0, 0, 16, 0}, {0, 0, 24, 0}}
+
+
+baryon_list = { 'proton_3' }
+
+flavor_list = { 'D', 'U' }
+
+psnk = {0,0,0,0}
+
+
+Nx = 32
+Ny = 32
+Nz = 32
+Nt = 96
+
+t_axis = 3
+
+latsize = {Nx,Ny,Nz,Nt}
+network_geom = {4, 4, 4, 3}
+ --because this multigrid blocks 8^4 sites at the most coarse level, and the lattice is 32^3*96, the coarse lattice will be 4^3*12, so my node grid must divide this size
+
+-- light quark multigrid solver blocking parameters
+mg_block = {
+  {4,4,4,4},
+  {2,2,2,2}}
+
+ferm_bc = {1, 1, 1, -1}
+
+
+-- light quark action parameters
+light_action_stout_rho = 0.125
+light_action_stout_N   = 1
+light_c_sw = 1.24930970916466
+light_m_q = -0.2850
+light_kappa = 1. / (8 + 2 * light_m_q)
+
+
+-- light quark multigrid solver target precision
+mg_max_abserr = 1.e-15
+mg_max_relerr = 1.e-22
+
+
+
+-- quark source smearing parameters
+ape_alpha    = 2.85
+ape_N        = 25
+ape_accu     = 1e-8
+ape_maxiter = 150
+wup_alpha    = 3.0
+wup_N        = 35
+
+
+-- I/O parameters
+
+volfmt = 'single'
+
+prop_finfo = {["$tag"] = "propagator",
+             {["$tag"] = "id", "111111111"} }
+
+smear_finfo = {["$tag"] = "sink_smear",
+              {["$tag"] = "id", "111111111"} }
+
+
+
+function open_qdpc_read(L, name)
+  local qdp_r = qcd.qdpc.Reader(L, name)
+  if not qdp_r then 
+    printf("Error opening QDP reader from '%s'\n", name)
+    os.exit(1)
+  end
+  return qdp_r
+end
+
+
+function load_qdpc_gauge(L, name)
+  local qdp_r, finfo = open_qdpc_read(L, name)
+  local gauge, rinfo = qdp_r:ColorMatrix(4)
+  if not gauge then 
+    printf("Error reading from '%s'\n", name)
+    os.exit(1)
+  end
+  qdp_r:close()
+  return gauge, finfo, rinfo
+end
+
+
+L = qcd.lattice(latsize,{network=network_geom})
+
+nnodes, networkkind = qcd.network()
+
+printf("machine of %d nodes\n", nnodes)
+
+printf("network kind: %s\n", networkkind)
+
+latticenetwork = L:network()
+for i = 1, #latticenetwork  do
+   printf("L.network[%d] = %d\n", i, latticenetwork[i])
+end
+
+
+cur_timer = timer("gauge_load")
+U, finfo, rinfo = load_qdpc_gauge(L, cfg_filename)
+cur_timer("done")
+
+cur_timer = timer('gauge_stout_smear')
+U_stout = stout_smear_full(U, light_action_stout_rho, light_action_stout_N, 4)
+cur_timer("done")
+
+cur_timer = timer('gauge_ape_smear')
+U_ape = APE_smear(U, ape_alpha, ape_N, ape_accu, ape_maxiter, t_axis)
+cur_timer("done")
+
+
+cur_timer = timer('make_mg_solver')
+mg_solver = make_mg_solver(L, U_stout, mg_block, mg_max_abserr, mg_max_relerr, ferm_bc, light_kappa, light_c_sw)
+cur_timer("done")
+
+
+mom_smear_opt = {
+ type='wuppertal',
+ t_axis=t_axis,
+ wup_U=U_ape,
+ wup_N=wup_N,
+ wup_alpha=wup_alpha,
+ boost=psnk,  -- use -psnk for non zero q
+ boost_scal=0.5
+}
+
+cur_timer = timer('make_mom_smear_fct')
+smfunc_mom_src = make_smear_func(L, mom_smear_opt)
+cur_timer("done")
+
+
+function make_mom_smear_source(csrc, t_axis)
+  local cm = L:ColorMatrix()
+  for a = 0, cm:colors() - 1 do
+    cm[{csrc[1], csrc[2], csrc[3], csrc[4],a=a,b=a}] = complex(1,0)
+  end
+  L:Subset{axis=t_axis, position=csrc[1+t_axis]}:where(
+     function()
+       cm:set(smfunc_mom_src(cm))
+     end)
+  return L:DiracPropagator(cm)
+end
+
+
+function fullsolve(x)
+  local res = x.lattice:DiracPropagator()
+  for js = 0, 3 do for jc = 0, 2 do
+    res[{d=js, c=jc}] = (2.0*light_kappa) * mg_solver(x[{d=js, c=jc}])
+  end end
+  return res
+end
+
+function halfsolve(sign, mu, src)
+  local z = qcd.right_project(sign, {mu=mu}, src)
+  local z_sol = {}
+  for i = 1, #z do
+    z_sol[i] = {}
+    for j = 1, #z[i] do
+      z_sol[i][j] = (2.0*light_kappa) * mg_solver(z[i][j]) / 2.
+    end
+  end
+  return qcd.right_reconstruct(sign, {mu=mu}, z_sol)
+end
+
+
+-- compute and save propagators
+for ind = 1, #sources do
+
+  srcx = sources[ind][1]
+  srcy = sources[ind][2]
+  srcz = sources[ind][3]
+  srct = sources[ind][4]
+
+  csrc = {srcx, srcy, srcz, srct}
+
+  cur_timer = timer("frw_prop_source." .. tostring(cfg) .. ".x" .. tostring(srcx) .. "y" .. tostring(srcy) .. "z" .. tostring(srcz) .. "t" .. tostring(srct))
+
+  sh_src = make_mom_smear_source(csrc, t_axis)
+  cur_timer("done")
+
+  cur_timer = timer("frw_prop." .. tostring(cfg) .. ".x" .. tostring(srcx) .. "y" .. tostring(srcy) .. "z" .. tostring(srcz) .. "t" .. tostring(srct))
+  prop_shsrc_ptsnk = fullsolve( sh_src )
+
+
+  prop_shsrc_shsnk = smfunc_mom_src(prop_shsrc_ptsnk)
+  cur_timer("done")
+
+
+string.t_srce = tostring(srcx) .. " " .. tostring(srcy) .. " " .. tostring(srcz) .. " " .. tostring(srct)
+string.t_source = tostring(srct)
+
+
+fw_rinfo = {["$tag"] = "Propagator",
+           {["$tag"] = "version", "1"},
+           {["$tag"] = "annotation", "Much of this header is fake, only parts necessary for proper treatment by TMD code are populated properly."},
+           {["$tag"] = "ForwardProp",
+           {["$tag"] = "version", "9"},
+           {["$tag"] = "quarkSpinType", "FULL"},
+           {["$tag"] = "obsvP", "false"},
+           {["$tag"] = "FermionAction",
+           {["$tag"] = "FermAct", "CLOVER"},
+           {["$tag"] = "Mass", "-0.2850"},
+           {["$tag"] = "clovCoeff", "1.24930970916466"},
+           {["$tag"] = "AnisoParam",
+           {["$tag"] = "anisoP", "false"},
+           {["$tag"] = "t_dir", "3"},
+           {["$tag"] = "xi_0", "1"},
+           {["$tag"] = "nu", "1"} },
+           {["$tag"] = "FermState",
+           {["$tag"] = "Name", "STOUT_FERM_STATE"},
+           {["$tag"] = "rho", "0.125"},
+           {["$tag"] = "n_smear", "1"},
+           {["$tag"] = "orthog_dir", "-1"},
+           {["$tag"] = "FermionBC",
+           {["$tag"] = "FermBC", "SIMPLE_FERMBC"},
+           {["$tag"] = "boundary", "1 1 1 -1"} } } },
+           {["$tag"] = "InvertParam",
+           {["$tag"] = "invType", "QUDA_CLOVER_INVERTER"},
+           {["$tag"] = "CloverParams",
+           {["$tag"] = "Mass", "-0.2850"},
+           {["$tag"] = "clovCoeff", "1.24930970916466"},
+           {["$tag"] = "AnisoParam",
+           {["$tag"] = "anisoP", "false"},
+           {["$tag"] = "t_dir", "3"},
+           {["$tag"] = "xi_0", "1"},
+           {["$tag"] = "nu", "1"} } },
+           {["$tag"] = "RsdTarget", "1.0e-9"},
+           {["$tag"] = "RsdToleranceFactor", "10"},
+           {["$tag"] = "Delta", "0.1"},
+           {["$tag"] = "MaxIter", "10000"},
+           {["$tag"] = "AntiPeriodicT", "true"},
+           {["$tag"] = "SolverType", "BICGSTAB"},
+           {["$tag"] = "Verbose", "false"},
+           {["$tag"] = "AsymmetricLinop", "false"},
+           {["$tag"] = "CudaPrecision", "DOUBLE"},
+           {["$tag"] = "CudaReconstruct", "RECONS_NONE"},
+           {["$tag"] = "CudaSloppyPrecision", "HALF"},
+           {["$tag"] = "CudaSloppyReconstruct", "RECONS_12"},
+           {["$tag"] = "AxialGaugeFix", "false"},
+           {["$tag"] = "AutotuneDslash", "true"} } },
+           {["$tag"] = "PropSource",
+           {["$tag"] = "version", "6"},
+           {["$tag"] = "Source",
+           {["$tag"] = "version", "2"},
+           {["$tag"] = "SourceType", "SHELL_SOURCE"},
+           {["$tag"] = "j_decay", "3"},
+           {["$tag"] = "t_srce", string.t_srce},
+           {["$tag"] = "SmearingParam"},
+           {["$tag"] = "Displacement"},
+           {["$tag"] = "noLinkSmearing"} },
+           {["$tag"] = "j_decay", "3"},
+           {["$tag"] = "t_source", string.t_source} },
+           {["$tag"] = "Config_info", ""} }
+
+
+smear_rinfo = {["$tag"] = "SinkSmear",
+              {["$tag"] = "version", "1"},
+              {["$tag"] = "annotation", "Much of this header is fake, only parts necessary for proper treatment by TMD code are populated properly."},
+              {["$tag"] = "PropSink",
+              {["$tag"] = "version", "5"},
+              {["$tag"] = "Sink",
+              {["$tag"] = "version", "2"},
+              {["$tag"] = "SinkType", "SHELL_SINK"},
+              {["$tag"] = "j_decay", "3"},
+              {["$tag"] = "SmearingParam",
+              {["$tag"] = "wvf_kind", "GAUGE_INV_GAUSSIAN"},
+              {["$tag"] = "wvf_param", "4.70162345981627"},
+              {["$tag"] = "wvfIntPar", "35"},
+              {["$tag"] = "no_smear_dir", "3"} },
+              {["$tag"] = "Displacement",
+              {["$tag"] = "version", "1"},
+              {["$tag"] = "DisplacementType", "NONE"} } },
+              {["$tag"] = "j_decay", "3"} },
+              {["$tag"] = "ForwardProp",
+              {["$tag"] = "version", "9"},
+              {["$tag"] = "quarkSpinType", "FULL"},
+              {["$tag"] = "obsvP", "false"},
+              {["$tag"] = "FermionAction",
+              {["$tag"] = "FermAct", "CLOVER"},
+              {["$tag"] = "Mass", "-0.2850"},
+              {["$tag"] = "clovCoeff", "1.24930970916466"},
+              {["$tag"] = "AnisoParam",
+              {["$tag"] = "anisoP", "false"},
+              {["$tag"] = "t_dir", "3"},
+              {["$tag"] = "xi_0", "1"},
+              {["$tag"] = "nu", "1"} },
+              {["$tag"] = "FermState",
+              {["$tag"] = "Name", "STOUT_FERM_STATE"},
+              {["$tag"] = "rho", "0.125"},
+              {["$tag"] = "n_smear", "1"},
+              {["$tag"] = "orthog_dir", "-1"},
+              {["$tag"] = "FermionBC",
+              {["$tag"] = "FermBC", "SIMPLE_FERMBC"},
+              {["$tag"] = "boundary", "1 1 1 -1"} } } },
+              {["$tag"] = "InvertParam",
+              {["$tag"] = "invType", "QUDA_CLOVER_INVERTER"},
+              {["$tag"] = "CloverParams",
+              {["$tag"] = "Mass", "-0.2850"},
+              {["$tag"] = "clovCoeff", "1.24930970916466"},
+              {["$tag"] = "AnisoParam",
+              {["$tag"] = "anisoP", "false"},
+              {["$tag"] = "t_dir", "3"},
+              {["$tag"] = "xi_0", "1"},
+              {["$tag"] = "nu", "1"} } },
+              {["$tag"] = "RsdTarget", "1.0e-9"},
+              {["$tag"] = "RsdToleranceFactor", "10"},
+              {["$tag"] = "Delta", "0.1"},
+              {["$tag"] = "MaxIter", "10000"},
+              {["$tag"] = "AntiPeriodicT", "true"},
+              {["$tag"] = "SolverType", "BICGSTAB"},
+              {["$tag"] = "Verbose", "false"},
+              {["$tag"] = "AsymmetricLinop", "false"},
+              {["$tag"] = "CudaPrecision", "DOUBLE"},
+              {["$tag"] = "CudaReconstruct", "RECONS_NONE"},
+              {["$tag"] = "CudaSloppyPrecision", "HALF"},
+              {["$tag"] = "CudaSloppyReconstruct", "RECONS_12"},
+              {["$tag"] = "AxialGaugeFix", "false"},
+              {["$tag"] = "AutotuneDslash", "true"} } },
+              {["$tag"] = "PropSource",
+              {["$tag"] = "version", "6"},
+              {["$tag"] = "Source",
+              {["$tag"] = "version", "2"},
+              {["$tag"] = "SourceType", "SHELL_SOURCE"},
+              {["$tag"] = "j_decay", "3"},
+              {["$tag"] = "t_srce", string.t_srce},
+              {["$tag"] = "SmearingParam"},
+              {["$tag"] = "Displacement"},
+              {["$tag"] = "noLinkSmearing"} },
+              {["$tag"] = "j_decay", "3"},
+              {["$tag"] = "t_source", string.t_source} },
+              {["$tag"] = "Config_info", ""} }
+
+
+  this_fwprop_filename = data_top .. "/forward." .. stream .. tostring(cfg) .. ".x" .. tostring(srcx) .. "y" .. tostring(srcy) .. "z" .. tostring(srcz) .. "t" .. tostring(srct) .. ".dirprop.with_header"
+
+  this_sm_fwprop_filename = data_top .. "/SinkSmeared_forward." .. stream .. tostring(cfg) .. ".x" .. tostring(srcx) .. "y" .. tostring(srcy) .. "z" .. tostring(srcz) .. "t" .. tostring(srct) .. ".dirprop"
+
+
+  cur_timer = timer("fwd_prop-write")
+  prop_writer = qcd.qdpc.Writer(L, this_fwprop_filename, xml.unparse(prop_finfo), volfmt)
+  prop_writer:DiracPropagator(prop_shsrc_ptsnk, xml.unparse(fw_rinfo))
+  prop_writer:close()
+  cur_timer("done")
+
+  cur_timer = timer("sm_fwd_prop-write")
+  prop_writer = qcd.qdpc.Writer(L, this_sm_fwprop_filename, xml.unparse(smear_finfo), volfmt)
+  prop_writer:DiracPropagator(prop_shsrc_shsnk, xml.unparse(smear_rinfo))
+  prop_writer:close()
+  cur_timer("done")
+
+
+  for i,baryon in pairs(baryon_list) do
+  for j,flavor in pairs(flavor_list) do
+
+    printf('doing sink momentum %d %d %d %d\n',psnk[1],psnk[2],psnk[3],psnk[4])
+
+  time_reverse = nil
+  if (baryon =='proton_3') then time_reverse = false
+  elseif (baryon == 'proton_negpar_3') then time_reverse = true
+  else exit() end
+
+  src_snk_dt = 10
+  if (not time_reverse) then tsnk = (srct + src_snk_dt) % Nt
+  else tsnk = (srct + Nt - src_snk_dt) % Nt end
+
+  printf("The sink time is %d\n", tsnk)
+
+  if (baryon == 'proton_3') then
+    printf('computing (1-g4) projected prop\n')
+    bwd_proj_sign = 'minus'
+  elseif (baryon == 'proton_negpar_3') then
+    printf('computing (1+g4) projected prop\n')
+    bwd_proj_sign = 'plus'
+  else
+    error("unknown baryon type")
+    exit()
+  end
+
+
+  c3pt_timer = timer('c3pt')
+  -- compute seqsource
+  bc_2pt_t = ferm_bc[1+t_axis]*ferm_bc[1+t_axis]*ferm_bc[1+t_axis]
+  seqsource = baryon_seqsource(L, baryon, flavor, prop_shsrc_shsnk,
+                               prop_shsrc_shsnk, csrc, tsnk, psnk, t_axis, bc_2pt_t)
+  c3pt_timer('bwd_source')
+
+
+  seq_sh_src = L:DiracPropagator()
+  L:Subset{axis=t_axis,position=tsnk}:where(function()
+    local seq_sh_src_t = smfunc_mom_src(seqsource)
+    seq_sh_src:set(seq_sh_src_t)
+  end)
+
+
+  -- calc bwd_prop
+  bwd_prop = halfsolve(bwd_proj_sign, t_axis, seq_sh_src)
+  c3pt_timer('bwd_prop')
+
+
+  if (not time_reverse) then string.quarkSpinType = "UPPER"
+  else string.quarkSpinType = "LOWER"  end
+
+  if (not time_reverse) then
+  string.SeqSourceType = "NUCL_" .. flavor .. "_MIXED_NONREL"
+  else string.SeqSourceType = "NUCL_" .. flavor .. "_MIXED_NONREL_NEGPAR"
+  end
+
+  string.sink_mom = tostring(psnk[1]) .. " " .. tostring(psnk[2]) .. " " .. tostring(psnk[3])
+
+
+seq_rinfo = {["$tag"] = "SequentialProp",
+            {["$tag"] = "version", "1"},
+            {["$tag"] = "annotation", "Much of this header is fake, only parts necessary for proper treatment by TMD code are populated properly."},
+            {["$tag"] = "SeqProp",
+            {["$tag"] = "version", "9"},
+            {["$tag"] = "quarkSpinType", string.quarkSpinType},
+            {["$tag"] = "obsvP", "false"},
+            {["$tag"] = "FermionAction",
+            {["$tag"] = "FermAct", "CLOVER"} },
+            {["$tag"] = "InvertParam",
+            {["$tag"] = "invType", "QUDA_CLOVER_INVERTER"} } },
+            {["$tag"] = "SeqSourceSinkSmear",
+            {["$tag"] = "version", "5"},
+            {["$tag"] = "j_decay", "3"} },
+            {["$tag"] = "SeqSource",
+            {["$tag"] = "version", "2"},
+            {["$tag"] = "SeqSource",
+            {["$tag"] = "version", "1"},
+            {["$tag"] = "SeqSourceType", string.SeqSourceType},
+            {["$tag"] = "sink_mom", string.sink_mom},
+            {["$tag"] = "t_sink", "0"},
+            {["$tag"] = "j_decay", "3"} } },
+            {["$tag"] = "ForwardProps", ""},
+            {["$tag"] = "Config_info", ""} }
+
+
+  cur_timer = timer("seq_prop-write")
+
+  this_seqprop_filename = data_top .. "/bkw_prop." .. stream .. tostring(cfg) .. ".x" .. tostring(srcx) .. "y" .. tostring(srcy) .. "z" .. tostring(srcz) .. "t" .. tostring(srct) .. "T" .. tostring(tsnk) .. ".PX" .. tostring(psnk[1]) .. "PY" .. tostring(psnk[2]) .. "PZ" .. tostring(psnk[3]) .. "." .. baryon .. "." .. flavor .. ".seq_prop"
+
+  prop_writer = qcd.qdpc.Writer(L, this_seqprop_filename, xml.unparse(prop_finfo), volfmt)
+  prop_writer:DiracPropagator(bwd_prop, xml.unparse(seq_rinfo))
+  prop_writer:close()
+
+  cur_timer("done")
+
+
+  bwd_prop_sm = smfunc_mom_src(bwd_prop)
+  printf("seq check: %s\n", tostring(bwd_prop_sm[csrc]:adjoin():trace()))
+
+
+  end
+  end
+
+end
+
+printf("\nSuccess.\n")
+

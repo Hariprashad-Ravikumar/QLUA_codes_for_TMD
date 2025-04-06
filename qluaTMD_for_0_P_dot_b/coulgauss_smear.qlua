@@ -1,0 +1,127 @@
+do
+  local function qcd_fourier_transf_axes(x, ft_sign, axes)
+    axes = axes or {}
+    local L = x.lattice
+    local x_ft = x
+    for i_mu, mu in ipairs(axes) do
+      x_ft = qcd.fourier_transf(x_ft, ft_sign, mu)
+    end
+    return x_ft
+  end
+  local function qcd_fourier_transf_skip(x, ft_sign, skip_axes)
+    skip_axes = skip_axes or {}
+    local L = x.lattice
+    local x_ft = x
+    for mu = 0, #L-1 do
+      if (not skip_axes[1+mu]) then
+        x_ft = qcd.fourier_transf(x_ft, ft_sign, mu)
+      end
+    end
+    return x_ft
+  end
+
+  -- return K'[p] = (1/V/norm1(K))\sum_x (exp(-i*p.x) K[x] * exp(i*k.x)), 
+  -- where k=boost, K[x] = exp[ -x_i^2 / (2*width^2)]
+  -- for isotropic source w_i==w, <x^2> = d*w^2, where d=dim. of kernel
+  function make_gauss_kernel_ft(L, width, skip_axes, boost)
+    skip_axes = skip_axes or {}
+    local mx2d2 = L:Real(0)
+    local ph = L:Real(0)
+    local zmask = L:Int(0)
+    for mu = 0, #L-1 do
+      local l_mu = L[mu]
+      local lat_x = L:pcoord(mu)
+      local dx = L:Real((lat_x + l_mu/2) % l_mu - l_mu/2)
+      if (not skip_axes[1+mu]) then
+        assert(not (0 == width[1+mu]))
+        mx2d2 = mx2d2 - dx * dx / (2. * width[1+mu]^2)
+        if (boost) then
+          ph = ph + 2. * math.pi / l_mu * boost[1+mu] * dx
+        end
+        if (0 == l_mu % 2) then 
+          zmask = zmask + (qcd.eq(l_mu/2, lat_x))
+        end
+      end
+    end
+    local sm_K = L:Complex(mx2d2, ph):exp()
+    if 0 < zmask:sum() then 
+      L:Subset(zmask):where(function()sm_K:set(L:Complex(0))end) 
+    end
+    local norm1x = sm_K:abs():sum()
+    -- sic! extra factor to compensate FTinv(FT(x)) = Vol*x 
+    -- FIXME replace with actual transform volume excluding skip_axes
+    sm_K = sm_K / norm1x / L:volume()
+    return qcd_fourier_transf_skip(sm_K, -1, skip_axes)
+  end
+
+  -- return K'[p] = (1/V/norm1(K))\sum_x (exp(-i*p.x) K[x] * exp(i*k.x)), 
+  -- where k=boost, K[x] = exp[ -sqrt((x_i/w_i)^2) ]
+  -- for isotropic source w_i==w, <x^2> = (d+1)*d*w^2, where d=dim. of kernel
+  function make_exp_kernel_ft(L, width, skip_axes, boost)
+    skip_axes = skip_axes or {}
+    local mxdw2 = L:Real(0)
+    local ph = L:Real(0)
+    local zmask = L:Int(0)
+    for mu = 0, #L-1 do
+      local l_mu = L[mu]
+      local lat_x = L:pcoord(mu)
+      local dx = L:Real((lat_x + l_mu/2) % l_mu - l_mu/2)
+      if (not skip_axes[1+mu]) then
+        assert(not (0 == width[1+mu]))
+        mxdw2 = mxdw2 + dx * dx / width[1+mu]^2
+        if (boost) then
+          ph = ph + 2. * math.pi / l_mu * boost[1+mu] * dx
+        end
+        if (0 == l_mu % 2) then 
+          zmask = zmask + (qcd.eq(l_mu/2, lat_x))
+        end
+      end
+    end
+    local sm_K = L:Complex(-(mxdw2:sqrt()), ph):exp()
+    if 0 < zmask:sum() then 
+      L:Subset(zmask):where(function()sm_K:set(L:Complex(0))end) 
+    end
+    local norm1x = sm_K:abs():sum()
+    -- sic! extra factor to compensate FTinv(FT(x)) = Vol*x
+    -- FIXME replace with actual transform volume excluding skip_axes
+    sm_K = sm_K / norm1x / L:volume()
+    return qcd_fourier_transf_skip(sm_K, -1, skip_axes)
+  end
+
+  -- \sum_p (exp(i*p.x) * K'[p] * \sum_y (A[y] * exp(-i*p.y) ) ) 
+  --    = \sum_y (K[x-y] * exp(i*k.(x-y)) * A[y])
+  -- for A[y]~exp[i*k.y], smear(A)[x]~exp[ik.x]
+  -- for A[y]=delta(y-y0), smear(A)[x] = K[x-y0]*exp(i*k.(x-y0))
+  function make_kernel_smear_func(L, kernel_ft, gf_colmat, skip_axes)
+    skip_axes = skip_axes or {}
+    if gf_colmat then return function(x)
+        return gf_colmat:adjoin() * qcd_fourier_transf_skip(
+            kernel_ft * qcd_fourier_transf_skip(gf_colmat * x, -1, skip_axes), 
+            1, skip_axes)
+      end
+    else return function(x)
+        return qcd_fourier_transf_skip(
+            kernel_ft * qcd_fourier_transf_skip(x, -1, skip_axes), 
+            1, skip_axes)
+      end
+    end
+  end
+
+  function make_gauss_smear_func(L, width, gf_colmat, boost)
+    local skip_axes = {}
+    for mu = 0, #L - 1 do
+      if (0 == width[1+mu]) then skip_axes[1+mu] = true end
+    end
+    local kernel_ft = make_gauss_kernel_ft(L, width, skip_axes, boost)
+    return make_kernel_smear_func(L, kernel_ft, gf_colmat, skip_axes)
+  end
+
+  function make_exp_smear_func(L, width, gf_colmat, boost)
+    local skip_axes = {}
+    for mu = 0, #L - 1 do
+      if (0 == width[1+mu]) then skip_axes[1+mu] = true end
+    end
+    local kernel_ft = make_exp_kernel_ft(L, width, skip_axes, boost)
+    return make_kernel_smear_func(L, kernel_ft, gf_colmat, skip_axes)
+  end
+end

@@ -1,0 +1,139 @@
+require "stdlib"
+require "gauge"
+require "qcd" 
+
+
+function eta_0(U, eta)
+  local link = {}
+  link[1] = U[0+1]
+  link[2] = U[1+1]:shift(0, "from_forward"):shift(1, "from_backward"):adjoin()
+  link[3] = link[1]:shift(0, "from_forward"):shift(1, "from_backward")
+  link[4] = link[2]:shift(0, "from_forward"):shift(1, "from_backward")
+  link[5] = link[3]:shift(0, "from_forward"):shift(1, "from_backward")
+  
+  local gauge_link = link[1]
+  for mm = 2, #link do
+    gauge_link = gauge_link * link[mm]
+  end
+  return gauge_link
+end
+
+
+
+function eta_plus(U, eta)
+  local link_1 = {}
+  local link_2 = {}
+  
+  link_1[1] = U[0+1]
+  link_1[2] = U[1+1]:shift(0, "from_forward")
+  if eta > 1 then
+    for m = 3, (2*eta), 2 do
+      link_1[m] = link_1[m-2]:shift(0, "from_forward"):shift(1, "from_forward")
+      link_1[m+1] = link_1[m-1]:shift(0, "from_forward"):shift(1, "from_forward")
+    end
+  end
+
+  local link_parallel_b1 = U[0+1]
+  local link_parallel_b2 = U[1+1]:shift(0, "from_forward"):shift(1, "from_backward"):adjoin()
+  local link_parallel_b3 = link_parallel_b1:shift(0, "from_forward"):shift(1, "from_backward")
+  local link_parallel_b4 = link_parallel_b2:shift(0, "from_forward"):shift(1, "from_backward")
+  local link_parallel_b5 = link_parallel_b3:shift(0, "from_forward"):shift(1, "from_backward")
+  for sh = 1, eta do
+    link_parallel_b1 = link_parallel_b1:shift(0, "from_forward"):shift(1, "from_forward")
+    link_parallel_b2 = link_parallel_b2:shift(0, "from_forward"):shift(1, "from_forward")
+    link_parallel_b3 = link_parallel_b3:shift(0, "from_forward"):shift(1, "from_forward")
+    link_parallel_b4 = link_parallel_b4:shift(0, "from_forward"):shift(1, "from_forward")
+    link_parallel_b5 = link_parallel_b5:shift(0, "from_forward"):shift(1, "from_forward")
+  end
+  link_1[(2*eta) + 1] = link_parallel_b1
+  link_1[(2*eta) + 2] = link_parallel_b2
+  link_1[(2*eta) + 3] = link_parallel_b3
+  link_1[(2*eta) + 4] = link_parallel_b4
+  link_1[(2*eta) + 5] = link_parallel_b5
+  
+  -- lets build link_2
+  link_2[1] = U[0+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_backward"):shift(1, "from_backward"):adjoin()
+  link_2[2] = U[1+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_backward"):shift(1, "from_backward"):adjoin()
+  if eta > 1 then
+    for m = 3, (2*eta), 2 do
+      link_2[m] = link_2[m-2]:shift(0, "from_forward"):shift(1, "from_forward")
+      link_2[m+1] = link_2[m-1]:shift(0, "from_forward"):shift(1, "from_forward")
+    end
+  end
+
+  local links_TOP = link_1[1]
+  for m = 2, #link_1 do
+    links_TOP = links_TOP * link_1[m]
+  end
+  local links_BOTTOM = link_2[1]
+  for n = 2, #link_2 do
+    links_BOTTOM = link_2[n] * links_BOTTOM
+  end
+  return (links_TOP * links_BOTTOM)
+end
+
+
+
+function eta_minus(U, eta)
+  local link_1 = {}
+  local link_2 = {}
+  
+  link_1[1] = U[1+1]:shift(1, "from_backward"):adjoin()
+  link_1[2] = U[0+1]:shift(1, "from_backward"):shift(0, "from_backward"):adjoin()
+  if eta > 1 then
+    for m = 3, (2*eta), 2 do
+      link_1[m] = link_1[m-2]:shift(1, "from_backward"):shift(0, "from_backward")
+      link_1[m+1] = link_1[m-1]:shift(1, "from_backward"):shift(0, "from_backward")
+    end
+  end
+
+  local link_parallel_b1 = U[0+1]
+  local link_parallel_b2 = U[1+1]:shift(0, "from_forward"):shift(1, "from_backward"):adjoin()
+  local link_parallel_b3 = link_parallel_b1:shift(0, "from_forward"):shift(1, "from_backward")
+  local link_parallel_b4 = link_parallel_b2:shift(0, "from_forward"):shift(1, "from_backward")
+  local link_parallel_b5 = link_parallel_b3:shift(0, "from_forward"):shift(1, "from_backward")
+  for sh = 1, eta do
+    link_parallel_b1 = link_parallel_b1:shift(1, "from_backward"):shift(0, "from_backward")
+    link_parallel_b2 = link_parallel_b2:shift(1, "from_backward"):shift(0, "from_backward")
+    link_parallel_b3 = link_parallel_b3:shift(1, "from_backward"):shift(0, "from_backward")
+    link_parallel_b4 = link_parallel_b4:shift(1, "from_backward"):shift(0, "from_backward")
+    link_parallel_b5 = link_parallel_b5:shift(1, "from_backward"):shift(0, "from_backward")
+  end
+  link_1[(2*eta) + 1] = link_parallel_b1
+  link_1[(2*eta) + 2] = link_parallel_b2
+  link_1[(2*eta) + 3] = link_parallel_b3
+  link_1[(2*eta) + 4] = link_parallel_b4
+  link_1[(2*eta) + 5] = link_parallel_b5
+  
+  -- lets build link_2
+  link_2[1] = U[1+1]:shift(1, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_backward"):shift(1, "from_backward")
+  link_2[2] = U[0+1]:shift(1, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_backward"):shift(1, "from_backward") 
+  if eta > 1 then
+    for m = 3, (2*eta), 2 do
+      link_2[m] = link_2[m-2]:shift(1, "from_backward"):shift(0, "from_backward")
+      link_2[m+1] = link_2[m-1]:shift(1, "from_backward"):shift(0, "from_backward")
+    end
+  end
+
+  local links_TOP = link_1[1]
+  for m = 2, #link_1 do
+    links_TOP = links_TOP * link_1[m]
+  end
+  local links_BOTTOM = link_2[1]
+  for n = 2, #link_2 do
+    links_BOTTOM = link_2[n] * links_BOTTOM
+  end
+  return (links_TOP * links_BOTTOM)
+end
+
+
+
+function staple_link(U, eta)
+  if eta == 0 then
+    return eta_0(U, eta)
+  elseif eta > 0 then
+    return eta_plus(U, eta)
+  elseif eta < 0 then
+    return eta_minus(U, -eta)
+  end
+end

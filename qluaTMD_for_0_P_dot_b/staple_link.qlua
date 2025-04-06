@@ -1,0 +1,132 @@
+require "stdlib"
+require "gauge"
+require "qcd" 
+
+
+function eta_0(U, b, eta, b_dir, eta_dir)
+  local link = {}
+  link[1] = U[b_dir+1]
+  if b > 1 then
+    for m = 2, b do
+      link[m] = link[m-1]:shift(b_dir, "from_forward")
+    end
+  end
+  local gauge_link = link[1]
+  for mm = 2, #link do
+    gauge_link = gauge_link * link[mm]
+  end
+  return gauge_link
+end
+
+
+
+function eta_plus(U, b, eta, b_dir, eta_dir)
+  local link_1 = {}
+  local link_2 = {}
+  link_1[1] = U[eta_dir+1]
+  if eta > 1 then
+    for m = 2, eta do
+      link_1[m] = link_1[m-1]:shift(eta_dir, "from_forward")
+    end
+  end
+
+  local link_1_eta_p1 = U[b_dir + 1]
+  for sh = 1, eta do
+    link_1_eta_p1 = link_1_eta_p1:shift(eta_dir, "from_forward")
+  end
+  link_1[eta + 1] = link_1_eta_p1
+  if b > 1 then
+    for n = 2, b do
+      link_1[eta + n] = link_1[eta + n - 1]:shift(b_dir, "from_forward")
+    end
+  end
+  -- lets build list of link_2
+  local link_top = U[eta_dir + 1]
+  for sh = 1, b do
+    link_top = link_top:shift(b_dir, "from_forward")
+  end
+  link_2[1] = link_top
+  if eta > 1 then
+    for m = 2, eta do
+      link_2[m] = link_2[m-1]:shift(eta_dir, "from_forward")
+    end
+  end
+  -- attach :adjoin() to all elements of link_2
+  for mm = 1, #link_2 do
+    link_2[mm] = link_2[mm]:adjoin()
+  end
+
+  local links_not_adj = link_1[1]
+  for m = 2, #link_1 do
+    links_not_adj = links_not_adj * link_1[m]
+  end
+  local links_adj = link_2[1]
+  for n = 2, #link_2 do
+    links_adj = link_2[n] * links_adj
+  end
+  return (links_not_adj * links_adj)
+end
+
+
+
+
+
+
+
+function eta_minus(U, b, eta, b_dir, eta_dir)
+  local link_1 = {}
+  local link_2 = {}
+  link_1[1] = U[eta_dir+1]:shift(eta_dir, "from_backward")
+  if eta > 1 then
+    for m = 2, eta do
+      link_1[m] = link_1[m-1]:shift(eta_dir, "from_backward")
+    end
+  end
+  -- attach :adjoin() to all elements of link_1
+  for mm = 1, eta do
+    link_1[mm] = link_1[mm]:adjoin()
+  end
+
+  local link_1_eta_p1 = U[b_dir + 1]
+  for sh = 1, eta do
+    link_1_eta_p1 = link_1_eta_p1:shift(eta_dir, "from_backward")
+  end 
+  link_1[eta + 1] = link_1_eta_p1
+  if b > 1 then
+    for n = 2, b do
+      link_1[eta + n] = link_1[eta + n - 1]:shift(b_dir, "from_forward")
+    end
+  end
+ 
+-- lets build list of link_2
+  local link_top = U[eta_dir + 1]
+  for sh = 1, b do
+    link_top = link_top:shift(b_dir, "from_forward")
+  end 
+  link_2[1] = link_top:shift(eta_dir, "from_backward")
+  if eta > 1 then
+    for m = 2, eta do
+      link_2[m] = link_2[m-1]:shift(eta_dir, "from_backward")
+    end
+  end
+
+  local links_bot_up = link_1[1]
+  for m = 2, #link_1 do
+    links_bot_up = links_bot_up * link_1[m]
+  end
+  local links_top = link_2[1]
+  for n = 2, #link_2 do
+    links_top = link_2[n] * links_top
+  end
+  return (links_bot_up * links_top)
+end
+
+function staple_link(U, b, eta, b_dir, eta_dir)
+  if eta == 0 then
+    return eta_0(U, b, eta, b_dir, eta_dir)
+  elseif eta > 0 then
+    return eta_plus(U, b, eta, b_dir, eta_dir)
+  elseif eta < 0 then
+    return eta_minus(U, b, -eta, b_dir, eta_dir)
+  end
+end

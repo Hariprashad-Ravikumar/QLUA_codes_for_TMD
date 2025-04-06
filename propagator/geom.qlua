@@ -1,0 +1,264 @@
+require 'stdlib'
+require 'lhpc-std'
+
+function hyperslab_mask(L, t0, tlen, t_axis)
+  --    t_axis  t-axis [0,#L)
+  local lt = L[t_axis]
+  return qcd.lt((L:pcoord(t_axis) + lt - t0) % lt, tlen)
+end
+
+function hyperslab_subset(L, t0, tlen, t_axis)
+  return L:Subset(hyperslab_mask(L, t0, tlen, t_axis))
+end
+
+function hyperslab_subset_grp(L, csrcgrp, tlen, t_axis, tabopt)
+  --  { verbose=false             print debug info
+  --    assert_no_overlap=false } check that hyperslabs do not overlap
+  tabopt = tabopt or {}
+  local assert_no_overlap = tabopt.assert_no_overlap or false
+  local verbose = tabopt.verbose or false
+  local mask = {}
+  local sset = {}
+  for i_csrc, csrc in ipairs(csrcgrp) do
+    if verbose then 
+      printf('csrc[%02d]={%s}\n', i_csrc, list_tostring(csrc, '%3d', ','))
+    end
+    mask[i_csrc] = hyperslab_mask(L, csrc[1+t_axis], tlen, t_axis)
+    if assert_no_overlap then
+      for j_csrc = 1, i_csrc-1 do assert(0 == (mask[j_csrc] * mask[i_csrc]):sum()) end
+    end
+    sset[i_csrc] = L:Subset(mask[i_csrc])
+  end
+  return sset
+end
+
+function hyperslab_subvol_scatter_grp(Lsrc, c0grp, tlen, t_axis, tabopt)
+  -- create lattice(Ldst) and scatterObj to collect data from hyperslabs
+  -- return scatterObj(Ldst, Lsrc), Ldst
+  -- create dst lattice
+  --  Lsrc      source lattice
+  --  c0grp   list of source positions to copy data from
+  --  tlen      size of hyperslabs
+  --  t_axis    axis of hyperslabs
+  --  { -- optional params
+  --    copy_network=true,        use network information from Lsrc
+  --    shift_space=true,         shift initial coord of c0 to zero on Ldst
+  --  }
+  tabopt = tabopt or {}
+  local ndim = #Lsrc
+  assert(t_axis < ndim)
+  local lt_src  = Lsrc[t_axis]
+  local n_c0    = #c0grp
+  local ls_dst  = {}
+  for mu = 0, ndim-1 do ls_dst[1+mu] = Lsrc[mu] end
+  local lt_dst  = n_c0 * tlen
+  ls_dst[1+t_axis] = lt_dst
+  local Ldst_opt= {}
+  if tabopt.copy_network then 
+    -- XXX inherit network from Lsrc : may break for some tlen, n_c0, net[t_axis]
+    -- XXX non-uniform partition of lattice has not been extensively tested
+    Ldst_opt.network = Lsrc:network()
+    assert(0 == lt_dst % Ldst_opt.network[1+t_axis])
+  end
+  local Ldst = qcd.lattice(ls_dst, Ldst_opt)
+  local sc_map = {}
+  for mu = 0, ndim-1 do
+    if mu == t_axis then sc_map[1+mu] = Ldst:Int(-1)
+    else sc_map[1+mu] = Ldst:pcoord(mu) end
+  end
+  -- build map
+  local lat_t_dst = Ldst:pcoord(t_axis)
+  for i_c0 = 0, n_c0-1 do
+    local c0      = c0grp[1+i_c0]
+    local t0_src  = c0[1+t_axis]
+    local t0_dst  = tlen * i_c0
+    local hslab_sset = hyperslab_subset(Ldst, t0_dst, tlen, t_axis)
+    -- scatter map: [tdst] = tsrc
+    hslab_sset:where(function() sc_map[1+t_axis]:set(
+          (lat_t_dst - t0_dst + t0_src + lt_src) % lt_src) end)
+    if tabopt.shift_space then
+      for mu = 0, ndim-1 do 
+        if mu ~= t_axis then 
+          local lx_src = Lsrc[mu]
+          hslab_sset:where(function() sc_map[1+mu]:set(
+                (sc_map[1+mu] + c0[1+mu] + lx_src) % lx_src) end)
+        end
+      end
+    end
+  end
+  return qcd.scatter(Ldst, Lsrc, sc_map), Ldst
+end
+
+local function hyperslab_axis_map(cperiod, c0l, clen, ncopy)
+  -- create map to reorder c-slices [c0:c0+clen) for all c0 in c0l, 
+  -- with ncopy copies; new order of slices is 
+  --      map[cdst] = c0l[1+i_c0] + dc
+  -- where cdst = (i_c0*clen + dc)*ncopy + i_copy, 0<=cdst < n_c0*clen*ncopy
+  --    cperiod   length of the orig lattice
+  --    c0l       coord(s) of initial hyperslice(s) of hyperslab(s)
+  --    clen      lengths of hyperslabs (all identical)
+  --    ncopy     number of copies
+  --  return (cmap, cslice)
+  --  where cslice[i] : list of dest c-slices with i-th copy (needed for masks in gather/scatter)
+  assert(0 < clen)
+  assert(0 < ncopy)
+  assert(0 < #c0l)
+  local cmap = {}
+  local cslice = {}
+  for i = 1, ncopy do cslice[i] = {} end       -- list of empty lists
+  for i_c0, c0 in ipairs(c0l) do
+    for dc = 0, clen - 1 do
+      local c = (c0 + dc) % cperiod
+      for i_copy = 0 , ncopy - 1 do
+        list_append(cmap, c)                    -- add c-slice
+        list_append(cslice[1+i_copy], #cmap-1)  -- add to list of c-slices; XXX order!
+      end
+    end
+  end
+  assert(#cmap == ncopy * clen * #c0l)
+  return cmap, cslice
+end
+
+local function make_slice_mask(L, cslice, c_axis)
+  -- make mask (L:Int) at cslice
+  local res_m = L:Int(0)
+  local i1    = L:Int(1)
+  L:Subset({axis=c_axis, pos=cslice}):where(function()res_m:set(i1)end)
+  return res_m
+end
+
+function hyperslab_map_bidir(Lsrc, c0l, clen, ncopy, c_axis, tabopt)
+  -- scatter: Lsrc->Ldst, gather: Ldst->Lsrc
+  --  tabopt {
+  --    dim_align   round dest lattice size to next n*dim_align
+  --    ncopy       
+  -- return (scatter, gather, subsets[ncopy], Ldst)
+  local tt
+  local Lsrc_net  = Lsrc:network()
+  tabopt          = tabopt or {}
+  if 1 < clen then error("clen>1 is untested; don't use") end
+
+  -- determine network
+  local Ldst_net  = tabopt.network or 'copy'
+  if 'string' == type(Ldst_net) then
+    if 'copy' == Ldst_net then Ldst_net = Lsrc_net 
+    else error(string.format("bad network='%s'", tostring(Ldst_net))) end
+  end
+
+  -- required "quantum" for c_axis dimension
+  -- dim_align=1 is the most economic
+  -- dim_align='net2' (2*network) is required for GPU compatibility
+  local dim_align = tabopt.dim_align or 'net2' 
+  if 'string' == type(dim_align) then
+    if string_is_prefix('net', dim_align) then
+      local nnet  = tonumber(string_del_prefix('net', dim_align))
+      dim_align   = nnet * Lsrc_net[1+c_axis] 
+    else error(string.format("bad dim_align='%s'", tostring(dim_align))) end
+  end
+
+  -- list of c0 locations
+  if 'table' ~= type(c0l) then
+    assert('number' == type(c0l))
+    c0l = { c0l }
+  end
+  local n_c0      = #c0l
+
+  -- make dest.lattice
+  local lc_dst    = n_c0 * clen * ncopy
+  lc_dst = math.ceil(lc_dst / dim_align) * dim_align
+  local ls_dst    = {}
+  for mu = 0, #Lsrc - 1 do ls_dst[1 + mu] = Lsrc[mu] end
+  ls_dst[1 + c_axis]  = lc_dst
+  local Ldst = qcd.lattice(ls_dst, {network = Ldst_net})
+
+  -- make maps & subsets
+  local cmap, cslices = hyperslab_axis_map(Lsrc[c_axis], c0l, clen, ncopy)
+  assert(#cmap <= lc_dst)
+  local sset_dst = {}
+  tt = timer('hyperslab_map_bidir:make_slice_mask')
+  for i_cs, cs in ipairs(cslices) do -- fix using L:Subset({axis=c_axis, pos=cs})
+    sset_dst[i_cs] = Ldst:Subset({axis=c_axis, pos=cs})
+  end
+  tt('done')
+
+  local xmap      = {}
+  for mu = 0, #Lsrc - 1 do
+    if mu ~= c_axis then xmap[1+mu]  = Ldst:pcoord(mu) end
+  end
+
+  tt = timer('hyperslab_map_bidir:make_int_map')
+  printf("cmap[%d]={%s}\n", #cmap, list_tostring(cmap))
+  printf("lc_dst=%d\n", lc_dst)
+  local cmap_vi = vector.int(lc_dst)
+  for c = 0, lc_dst-1 do cmap_vi[c] = cmap[1+c] or 0 end
+  xmap[1+c_axis] = cmap_vi[Ldst:pcoord(c_axis)]
+  tt('done')
+
+  tt = timer('hyperslab_map_bidir:qcd.scatter') ; local res_sc = qcd.scatter(Ldst, Lsrc, xmap) ; tt('done')
+  tt = timer('hyperslab_map_bidir:qcd.gather') ; local res_gt = qcd.gather(Lsrc, Ldst, xmap) ; tt('done')
+  return res_sc, res_gt, sset_dst, Ldst
+end
+
+function scatter_subset_array(map_sc, map_ss, arr)
+  -- apply scatter (map_sc) to arr elements with subsets
+  local n = #map_ss
+  assert(0 < n)
+  assert(#arr == n)
+  local function ff(x) return latvec_apply(map_sc, x)end
+  local res = nil
+  for i, ss in ipairs(map_ss) do
+    if 1 == i then 
+      local r1 = ss:where(ff, arr[i])
+      res = latvec_zeros_like(r1)
+      ss:where(function()latvec_set(res, r1)end)
+    else
+      ss:where(function()latvec_set(res, ff(arr[i]))end)
+    end
+  end
+  return res
+end
+
+function gather_subset_array(map_gt, map_ss, a)
+  local n = #map_ss
+  assert(0 < n)
+  local res = {}
+  local function ff(x) 
+    return latvec_apply(function(y) return map_gt:add(y) end, x)
+  end
+
+  local a1 = latvec_zeros_like(a)
+  for i, ss in ipairs(map_ss) do
+    -- XXX this is a workaround : gather does not use masks
+    latvec_setzero(a1)
+    ss:where(latvec_set, a1, a)
+    list_append(res, latvec_apply(function(x)return map_gt:add(x)end, a1))
+  end
+  return res
+end
+
+-- create shift map : scatter_shift(vec)(field) )[x] = field[x+vec]
+function scatter_shift(L, vec)
+  assert(#L == #vec)
+  local xmap = {}
+  for mu = 0, #L - 1 do 
+    xmap[1+mu] = (L[mu] + L:pcoord(mu) + vec[1+mu]) % L[mu] 
+  end
+  return qcd.scatter(L, L, xmap)
+end
+
+-- create shift map similar to field:shift(mu, dirstr)
+-- `step' is optional, defaults to 1
+function scatter_shift_dir(L, mu, dirstr, step)
+  assert(0 <= mu and mu < #L)
+  step = step or 1
+  local vec = {}
+  for k = 0, #L - 1 do 
+    if k == mu then 
+      if     ( "from_forward" == dirstr or "to_backward" == dirstr) then vec[1+k] =  step
+      elseif ( "from_backward" == dirstr or "to_forward" == dirstr) then vec[1+k] = -step 
+      else error(string.format("bad direction '%s'", dirstr)) end
+    else vec[1+k] = 0 end
+  end
+  return scatter_shift(L, vec)
+end
+

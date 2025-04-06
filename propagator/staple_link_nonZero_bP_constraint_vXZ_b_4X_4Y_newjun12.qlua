@@ -1,0 +1,464 @@
+require "stdlib"
+require "gauge"
+require "qcd" 
+
+-- v = {-0.303023, 0, 1}
+-- b = {2, 2, 0}
+
+
+
+function eta_0(U, eta)
+  local link = {}
+  link[1] = U[0+1]
+  link[2] = U[1+1]:shift(0, "from_forward")
+  link[3] = U[0+1]:shift(0, "from_forward"):shift(1, "from_forward")
+  link[4] = U[1+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link[5] = link[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link[6] = link[4]:shift(0, "from_forward"):shift(1, "from_forward")
+  link[7] = link[5]:shift(0, "from_forward"):shift(1, "from_forward")
+  link[8] = link[6]:shift(0, "from_forward"):shift(1, "from_forward")
+  
+  local gauge_link = link[1]
+  for mm = 2, #link do
+    gauge_link = gauge_link * link[mm]
+  end
+  return gauge_link
+end
+
+function eta_plus1(U, eta)
+  local link_along_b = {}
+  local link_eta_Go = {}
+  local link_eta_Come = {}
+
+  link_along_b[1] = U[0+1]:shift(2, "from_forward")
+  link_along_b[2] = U[1+1]:shift(0, "from_forward"):shift(2, "from_forward")
+  link_along_b[3] = U[0+1]:shift(2, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[4] = U[1+1]:shift(0, "from_forward"):shift(2, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[5] = link_along_b[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[6] = link_along_b[4]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[7] = link_along_b[5]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[8] = link_along_b[6]:shift(0, "from_forward"):shift(1, "from_forward")
+
+  link_eta_Go[1] = U[2+1]
+
+  link_eta_Come[1] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  
+  local gauge_link = link_along_b[1]
+  for mm = 2, #link_along_b do
+    gauge_link = gauge_link * link_along_b[mm]
+  end
+  return link_eta_Go[1] * gauge_link * link_eta_Come[1]
+end
+
+
+
+function eta_plus2(U, eta)
+  local link_along_b = {}
+  local link_eta_Go = {}
+  local link_eta_Come = {}
+
+  link_along_b[1] = U[0+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward")
+  link_along_b[2] = U[1+1]:shift(0, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward")
+  link_along_b[3] = U[0+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[4] = U[1+1]:shift(0, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[5] = link_along_b[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[6] = link_along_b[4]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[7] = link_along_b[5]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[8] = link_along_b[6]:shift(0, "from_forward"):shift(1, "from_forward")
+
+  link_eta_Go[1] = U[2+1]
+  link_eta_Go[2] = U[2+1]:shift(2, "from_forward")
+  link_eta_Go[3] = U[0+1]:shift(0, "from_backward"):shift(2, "from_forward"):shift(2, "from_forward"):adjoin()
+
+  link_eta_Come[1] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[2] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[3] = U[0+1]:shift(0, "from_backward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  
+  local gauge_link = link_along_b[1]
+  for mm = 2, #link_along_b do
+    gauge_link = gauge_link * link_along_b[mm]
+  end
+
+  local gauge_link_eta_Go = link_eta_Go[1]
+  for mm = 2, #link_eta_Go do
+    gauge_link_eta_Go = gauge_link_eta_Go * link_eta_Go[mm]
+  end
+
+  local gauge_link_eta_Come = link_eta_Come[1]
+  for mm = 2, #link_eta_Come do
+    gauge_link_eta_Come =  link_eta_Come[mm] * gauge_link_eta_Come
+  end
+  return gauge_link_eta_Go * gauge_link * gauge_link_eta_Come
+end
+
+
+function eta_plus3(U, eta)
+  local link_along_b = {}
+  local link_eta_Go = {}
+  local link_eta_Come = {}
+
+  link_along_b[1] = U[0+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward")
+  link_along_b[2] = U[1+1]:shift(0, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward")
+  link_along_b[3] = U[0+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[4] = U[1+1]:shift(0, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[5] = link_along_b[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[6] = link_along_b[4]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[7] = link_along_b[5]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[8] = link_along_b[6]:shift(0, "from_forward"):shift(1, "from_forward")
+
+  link_eta_Go[1] = U[2+1]
+  link_eta_Go[2] = U[2+1]:shift(2, "from_forward")
+  link_eta_Go[3] = U[0+1]:shift(0, "from_backward"):shift(2, "from_forward"):shift(2, "from_forward"):adjoin()
+  link_eta_Go[4] = U[2+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward")
+
+  link_eta_Come[1] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[2] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[3] = U[0+1]:shift(0, "from_backward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[4] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  
+  local gauge_link = link_along_b[1]
+  for mm = 2, #link_along_b do
+    gauge_link = gauge_link * link_along_b[mm]
+  end
+
+  local gauge_link_eta_Go = link_eta_Go[1]
+  for mm = 2, #link_eta_Go do
+    gauge_link_eta_Go = gauge_link_eta_Go * link_eta_Go[mm]
+  end
+
+  local gauge_link_eta_Come = link_eta_Come[1]
+  for mm = 2, #link_eta_Come do
+    gauge_link_eta_Come =  link_eta_Come[mm] * gauge_link_eta_Come
+  end
+  return gauge_link_eta_Go * gauge_link * gauge_link_eta_Come
+end
+
+
+function eta_plus4(U, eta)
+  local link_along_b = {}
+  local link_eta_Go = {}
+  local link_eta_Come = {}
+
+  link_along_b[1] = U[0+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward")
+  link_along_b[2] = U[1+1]:shift(0, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward")
+  link_along_b[3] = U[0+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[4] = U[1+1]:shift(0, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[5] = link_along_b[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[6] = link_along_b[4]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[7] = link_along_b[5]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[8] = link_along_b[6]:shift(0, "from_forward"):shift(1, "from_forward")
+
+  link_eta_Go[1] = U[2+1]
+  link_eta_Go[2] = U[2+1]:shift(2, "from_forward")
+  link_eta_Go[3] = U[0+1]:shift(0, "from_backward"):shift(2, "from_forward"):shift(2, "from_forward"):adjoin()
+  link_eta_Go[4] = U[2+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward")
+  link_eta_Go[5] = link_eta_Go[4]:shift(2, "from_forward")
+
+  link_eta_Come[1] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[2] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[3] = U[0+1]:shift(0, "from_backward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[4] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[5] = link_eta_Come[4]:shift(2, "from_forward")
+  
+  local gauge_link = link_along_b[1]
+  for mm = 2, #link_along_b do
+    gauge_link = gauge_link * link_along_b[mm]
+  end
+
+  local gauge_link_eta_Go = link_eta_Go[1]
+  for mm = 2, #link_eta_Go do
+    gauge_link_eta_Go = gauge_link_eta_Go * link_eta_Go[mm]
+  end
+
+  local gauge_link_eta_Come = link_eta_Come[1]
+  for mm = 2, #link_eta_Come do
+    gauge_link_eta_Come =  link_eta_Come[mm] * gauge_link_eta_Come
+  end
+  return gauge_link_eta_Go * gauge_link * gauge_link_eta_Come
+end
+
+
+
+function eta_plus5(U, eta)
+  local link_along_b = {}
+  local link_eta_Go = {}
+  local link_eta_Come = {}
+
+  link_along_b[1] = U[0+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_backward")
+  link_along_b[2] = U[1+1]:shift(0, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_backward")
+  link_along_b[3] = U[0+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[4] = U[1+1]:shift(0, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[5] = link_along_b[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[6] = link_along_b[4]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[7] = link_along_b[5]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[8] = link_along_b[6]:shift(0, "from_forward"):shift(1, "from_forward")
+
+  link_eta_Go[1] = U[2+1]
+  link_eta_Go[2] = U[2+1]:shift(2, "from_forward")
+  link_eta_Go[3] = U[0+1]:shift(0, "from_backward"):shift(2, "from_forward"):shift(2, "from_forward"):adjoin()
+  link_eta_Go[4] = U[2+1]:shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward")
+  link_eta_Go[5] = link_eta_Go[4]:shift(2, "from_forward")
+  link_eta_Go[6] = link_eta_Go[5]:shift(2, "from_forward")
+  link_eta_Go[7] = link_eta_Go[3]:shift(0, "from_backward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward")
+
+  link_eta_Come[1] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[2] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[3] = U[0+1]:shift(0, "from_backward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[4] = U[2+1]:shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(0, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[5] = link_eta_Come[4]:shift(2, "from_forward")
+  link_eta_Come[6] = link_eta_Come[5]:shift(2, "from_forward")
+  link_eta_Come[7] = link_eta_Come[3]:shift(0, "from_backward"):shift(2, "from_forward"):shift(2, "from_forward"):shift(2, "from_forward")
+
+  local gauge_link = link_along_b[1]
+  for mm = 2, #link_along_b do
+    gauge_link = gauge_link * link_along_b[mm]
+  end
+
+  local gauge_link_eta_Go = link_eta_Go[1]
+  for mm = 2, #link_eta_Go do
+    gauge_link_eta_Go = gauge_link_eta_Go * link_eta_Go[mm]
+  end
+
+  local gauge_link_eta_Come = link_eta_Come[1]
+  for mm = 2, #link_eta_Come do
+    gauge_link_eta_Come =  link_eta_Come[mm] * gauge_link_eta_Come
+  end
+  return gauge_link_eta_Go * gauge_link * gauge_link_eta_Come
+end
+
+
+function eta_minus1(U, eta)
+  local link_along_b = {}
+  local link_eta_Go = {}
+  local link_eta_Come = {}
+
+  link_along_b[1] = U[0+1]:shift(2, "from_backward")
+  link_along_b[2] = U[1+1]:shift(0, "from_forward"):shift(2, "from_backward")
+  link_along_b[3] = U[0+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[4] = U[1+1]:shift(0, "from_forward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[5] = link_along_b[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[6] = link_along_b[4]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[7] = link_along_b[5]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[8] = link_along_b[6]:shift(0, "from_forward"):shift(1, "from_forward")
+
+  link_eta_Go[1] = U[2+1]:shift(2, "from_backward"):adjoin()
+  link_eta_Come[1] = U[2+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  local gauge_link = link_along_b[1]
+  for mm = 2, #link_along_b do
+    gauge_link = gauge_link * link_along_b[mm]
+  end
+  return link_eta_Go[1] * gauge_link * link_eta_Come[1]
+end
+
+local function eta_minus2(U, eta)
+  local link_along_b = {}
+  local link_eta_Go = {}
+  local link_eta_Come = {}
+
+  link_along_b[1] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward")
+  link_along_b[2] = U[1+1]:shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward")
+  link_along_b[3] = link_along_b[1]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[4] = link_along_b[2]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[5] = link_along_b[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[6] = link_along_b[4]:shift(0, "from_forward"):shift(1, "from_forward")
+
+  link_eta_Go[1] = U[2+1]:shift(2, "from_backward"):adjoin()
+  link_eta_Go[2] = U[2+1]:shift(2, "from_backward"):shift(2, "from_backward"):adjoin()
+  link_eta_Go[3] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward")
+
+  link_eta_Come[1] = U[2+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[2] = U[2+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[3] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  
+  local gauge_link = link_along_b[1]
+  for mm = 2, #link_along_b do
+    gauge_link = gauge_link * link_along_b[mm]
+  end
+
+  local gauge_link_eta_Go = link_eta_Go[1]
+  for mm = 2, #link_eta_Go do
+    gauge_link_eta_Go = gauge_link_eta_Go * link_eta_Go[mm]
+  end
+
+  local gauge_link_eta_Come = link_eta_Come[1]
+  for mm = 2, #link_eta_Come do
+    gauge_link_eta_Come =  link_eta_Come[mm] * gauge_link_eta_Come
+  end
+  return gauge_link_eta_Go * gauge_link * gauge_link_eta_Come
+end
+
+
+function eta_minus3(U, eta)
+  local link_along_b = {}
+  local link_eta_Go = {}
+  local link_eta_Come = {}
+
+  link_along_b[1] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward")
+  link_along_b[2] = U[1+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward")
+  link_along_b[3] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[4] = U[1+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[5] = link_along_b[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[6] = link_along_b[4]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[7] = link_along_b[5]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[8] = link_along_b[6]:shift(0, "from_forward"):shift(1, "from_forward")
+
+  link_eta_Go[1] = U[2+1]:shift(2, "from_backward"):adjoin()
+  link_eta_Go[2] = U[2+1]:shift(2, "from_backward"):shift(2, "from_backward"):adjoin()
+  link_eta_Go[3] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward")
+  link_eta_Go[4] = link_eta_Go[2]:shift(2, "from_backward"):shift(0, "from_forward")
+
+  link_eta_Come[1] = U[2+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[2] = U[2+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[3] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[4] = link_eta_Come[2]:shift(2, "from_backward"):shift(0, "from_forward")
+  
+  local gauge_link = link_along_b[1]
+  for mm = 2, #link_along_b do
+    gauge_link = gauge_link * link_along_b[mm]
+  end
+
+  local gauge_link_eta_Go = link_eta_Go[1]
+  for mm = 2, #link_eta_Go do
+    gauge_link_eta_Go = gauge_link_eta_Go * link_eta_Go[mm]
+  end
+
+  local gauge_link_eta_Come = link_eta_Come[1]
+  for mm = 2, #link_eta_Come do
+    gauge_link_eta_Come =  link_eta_Come[mm] * gauge_link_eta_Come
+  end
+  return gauge_link_eta_Go * gauge_link * gauge_link_eta_Come
+end
+
+function eta_minus4(U, eta)
+  local link_along_b = {}
+  local link_eta_Go = {}
+  local link_eta_Come = {}
+
+  link_along_b[1] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward")
+  link_along_b[2] = U[1+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward")
+  link_along_b[3] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[4] = U[1+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[5] = link_along_b[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[6] = link_along_b[4]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[7] = link_along_b[5]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[8] = link_along_b[6]:shift(0, "from_forward"):shift(1, "from_forward")
+
+  link_eta_Go[1] = U[2+1]:shift(2, "from_backward"):adjoin()
+  link_eta_Go[2] = U[2+1]:shift(2, "from_backward"):shift(2, "from_backward"):adjoin()
+  link_eta_Go[3] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward")
+  link_eta_Go[4] = link_eta_Go[2]:shift(2, "from_backward"):shift(0, "from_forward")
+  link_eta_Go[5] = link_eta_Go[4]:shift(2, "from_backward")
+
+  link_eta_Come[1] = U[2+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[2] = U[2+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[3] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[4] = link_eta_Come[2]:shift(2, "from_backward"):shift(0, "from_forward")
+  link_eta_Come[5] = link_eta_Come[4]:shift(2, "from_backward")
+  
+  local gauge_link = link_along_b[1]
+  for mm = 2, #link_along_b do
+    gauge_link = gauge_link * link_along_b[mm]
+  end
+
+  local gauge_link_eta_Go = link_eta_Go[1]
+  for mm = 2, #link_eta_Go do
+    gauge_link_eta_Go = gauge_link_eta_Go * link_eta_Go[mm]
+  end
+
+  local gauge_link_eta_Come = link_eta_Come[1]
+  for mm = 2, #link_eta_Come do
+    gauge_link_eta_Come =  link_eta_Come[mm] * gauge_link_eta_Come
+  end
+  return gauge_link_eta_Go * gauge_link * gauge_link_eta_Come
+end
+
+
+function eta_minus5(U, eta)
+  local link_along_b = {}
+  local link_eta_Go = {}
+  local link_eta_Come = {}
+
+  link_along_b[1] = U[0+1]:shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward")
+  link_along_b[2] = U[1+1]:shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward")
+  link_along_b[3] = U[0+1]:shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[4] = U[1+1]:shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[5] = link_along_b[3]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[6] = link_along_b[4]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[7] = link_along_b[5]:shift(0, "from_forward"):shift(1, "from_forward")
+  link_along_b[8] = link_along_b[6]:shift(0, "from_forward"):shift(1, "from_forward")
+
+  link_eta_Go[1] = U[2+1]:shift(2, "from_backward"):adjoin()
+  link_eta_Go[2] = U[2+1]:shift(2, "from_backward"):shift(2, "from_backward"):adjoin()
+  link_eta_Go[3] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward")
+  link_eta_Go[4] = link_eta_Go[2]:shift(2, "from_backward"):shift(0, "from_forward")
+  link_eta_Go[5] = link_eta_Go[4]:shift(2, "from_backward")
+  link_eta_Go[6] = link_eta_Go[5]:shift(2, "from_backward")
+  link_eta_Go[7] = link_eta_Go[3]:shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward")
+
+  link_eta_Come[1] = U[2+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[2] = U[2+1]:shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward")
+  link_eta_Come[3] = U[0+1]:shift(2, "from_backward"):shift(2, "from_backward"):shift(0, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):shift(0, "from_forward"):shift(1, "from_forward"):adjoin()
+  link_eta_Come[4] = link_eta_Come[2]:shift(2, "from_backward"):shift(0, "from_forward")
+  link_eta_Come[5] = link_eta_Come[4]:shift(2, "from_backward")
+  link_eta_Come[6] = link_eta_Come[5]:shift(2, "from_backward")
+  link_eta_Come[7] = link_eta_Come[3]:shift(0, "from_forward"):shift(2, "from_backward"):shift(2, "from_backward"):shift(2, "from_backward")
+  
+  local gauge_link = link_along_b[1]
+  for mm = 2, #link_along_b do
+    gauge_link = gauge_link * link_along_b[mm]
+  end
+
+  local gauge_link_eta_Go = link_eta_Go[1]
+  for mm = 2, #link_eta_Go do
+    gauge_link_eta_Go = gauge_link_eta_Go * link_eta_Go[mm]
+  end
+
+  local gauge_link_eta_Come = link_eta_Come[1]
+  for mm = 2, #link_eta_Come do
+    gauge_link_eta_Come =  link_eta_Come[mm] * gauge_link_eta_Come
+  end
+  return gauge_link_eta_Go * gauge_link * gauge_link_eta_Come
+end
+
+
+
+
+
+
+
+
+function staple_link(U, eta)
+  if eta == 0 then
+    return eta_0(U, eta)
+  end
+  if eta == 1 then
+    return eta_plus1(U, eta)
+  end
+  if eta == 2 then
+    return eta_plus2(U, eta)
+  end
+  if eta == 3 then
+    return eta_plus3(U, eta)
+  end
+  if eta == 4 then
+    return eta_plus4(U, eta)
+  end
+  if eta == 5 then
+    return eta_plus5(U, eta)
+  end
+  if eta == -1 then
+    return eta_minus1(U, eta)
+  end
+  if eta == -2 then
+    return eta_minus2(U, eta)
+  end
+  if eta == -3 then
+    return eta_minus3(U, eta)
+  end
+  if eta == -4 then
+    return eta_minus4(U, eta)
+  end
+  if eta == -5 then
+    return eta_minus5(U, eta)
+  end
+end

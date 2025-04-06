@@ -1,0 +1,24 @@
+require "stdlib"
+require "gauge"
+require "qcd"
+require "hex-smear"
+
+
+function open_qdpc_read(L, name)
+  local qdp_r = qcd.qdpc.Reader(L, name)
+  return qdp_r
+end
+
+function load_qdpc_gauge(L, name)
+  local qdp_r, finfo = open_qdpc_read(L, name)
+  local gauge, rinfo = qdp_r:ColorMatrix(4)
+  qdp_r:close()
+  return gauge, finfo, rinfo
+end
+
+
+function gauge_from_cfg(cfg, cfgstream, L)
+  local cfg_filename = "/pscratch/sd/e/engel/cfgs/cl21_32_96_b6p1_m0p2850_m0p2450_" .. cfgstream .. "cfg_" .. tostring(cfg) .. ".lime"
+  local W, finfo, rinfo = load_qdpc_gauge(L, cfg_filename)
+  return gauge_hyp_smear_std(W, 1)
+end

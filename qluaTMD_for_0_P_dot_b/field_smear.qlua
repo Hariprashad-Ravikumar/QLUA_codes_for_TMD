@@ -1,0 +1,223 @@
+require 'lhpc-std'
+require 'gauge'
+require 'wuppertal-smear'
+require 'coulgauss_smear'
+require 'geom'
+-- require 'rcparams'
+
+do
+  -- TODO move to quda API?
+  local function wuppertal_smear_gpu_quda(wup_U, wup_alpha, wup_N, G, t_axis)
+    local tt
+    assert(0 < #wup_U)
+    local L = wup_U[1].lattice
+    assert(#L == #wup_U)
+
+    local dim_smear
+    if t_axis and (0 <= t_axis) and (t_axis < #L) then dim_smear = #L - 1
+    else dim_smear = #L end
+
+    local v = 1 + 2 * wup_alpha * dim_smear
+    local ql_alpha  = wup_alpha / v
+    local ql_beta   = 1. / v
+
+    local ql_alpha_arr = {}
+    for mu = 0, #L-1 do 
+      if mu == t_axis then ql_alpha_arr[1+mu] = 0. 
+      else ql_alpha_arr[1+mu] = ql_alpha end
+    end
+    print_obj(G, 'wuppertal_smear_gpu_quda:G')
+
+    -- QUDA laplacian works only on latdirferm
+    local xG, G_sm
+    tt = timer('wup_smear_gpu_quda:field2list')
+    if     'lattice.dirac.propagator' == type(G)  then xG = dp2dfl(G)
+    elseif 'lattice.dirac.fermion'    == type(G)  then xG = G
+    else error(string.format("unsupported type='%s'", type(G))) end
+    tt('done')
+    tt = timer ('wup_smear_gpu_quda:wup_smear')
+    local xG_sm = latvec_apply(
+        function(x)
+          return qudaAPI.laplacian(ql_alpha_arr, ql_beta, wup_U, x, {iter=wup_N})
+        end,
+        xG)
+    tt('done')
+    tt = timer('wup_smear_gpu_quda:list2field')
+    if     'lattice.dirac.propagator' == type(G)  then G_sm = dfl2dp(xG_sm)
+    elseif 'lattice.dirac.fermion'    == type(G)  then G_sm = xG_sm
+    else error(string.format("unsupported type='%s'", type(G))) end
+    tt('done')
+    return G_sm
+  end
+
+  local function wuppertal_smear_cpu_clover(wup_U, wup_alpha, wup_N, G, t_axis)
+    -- use qcd.Clover():DplusDx(x)
+    local tt
+    assert(0 < #wup_U)
+    local L = wup_U[1].lattice
+    assert(#L == #wup_U)
+
+    local dim_smear
+    if t_axis and (0 <= t_axis) and (t_axis < #L) then dim_smear = #L - 1
+    else dim_smear = #L end
+
+    local wup_U_lap = {}
+    local bc = {}
+    for mu = 0, #L-1 do
+      if mu == t_axis then wup_U_lap[1+mu] = L:ColorMatrix() -- zero
+      else wup_U_lap[1+mu] = wup_U[1+mu]
+      end
+      bc[1+mu] = 1
+    end
+
+    -- for normal Wilson(no clover), ("U" assumes shifts)
+    --    Dslash = 1 - kappa * sum_mu[(1-gamma_mu)U_{x,+mu} + (1+gamma_mu)U_{x,-mu}]
+    -- set kappa=0.5 (<=> M_W = -3), so that 
+    --    (Dslash + Dslash^H) = 2 - sum_mu[U_{x,+mu} + U_{x,-mu}]
+    local CL = qcd.Clover(wup_U_lap, 0.5, 0., bc)
+
+    local v = 1 + 2 * wup_alpha * dim_smear   -- overall scale
+    local cl_a  = -wup_alpha / v              -- hop.coeff, compensate (-1) in (D+Dx) by Clover
+    local cl_b  = (1. + 2 * wup_alpha) / v    -- loc.coeff, compensate for +2 in (D+Dx) by Clover
+
+    -- cpu-clover laplacian works only on latdirferm?
+    if false then
+      local xG, G_sm
+      tt = timer('wup_smear_cpu_clover:field2list')
+      if     'lattice.dirac.propagator' == type(G)  then xG = dp2dfl(G)
+      elseif 'lattice.dirac.fermion'    == type(G)  then xG = G
+      else error(string.format("unsupported type='%s'", type(G))) end
+      tt('done')
+      tt = timer ('wup_smear_cpu_clover:wup_smear')
+      local xG_sm = latvec_apply(
+          function(x) return CL:DplusDx(x, {a=cl_a, b=cl_b, iter=wup_N}) end,
+          xG)
+      tt('done')
+      tt = timer('wup_smear_cpu_clover:list2field')
+      if     'lattice.dirac.propagator' == type(G)  then G_sm = dfl2dp(xG_sm)
+      elseif 'lattice.dirac.fermion'    == type(G)  then G_sm = xG_sm
+      else error(string.format("unsupported type='%s'", type(G))) end
+      tt('done')
+      return G_sm
+    else 
+      return latvec_apply(
+          function(x) return CL:DplusDx(x, {a=cl_a, b=cl_b, iter=wup_N}) end,
+          G)
+    end
+  end
+
+  wuppertal_smear_bkend = {
+    -- TODO migrate from CPU wup.smear lhpc/ to qlua-production/smear/
+    ['cpu']         = wuppertal_smear,
+    ['gpu-quda']    = wuppertal_smear_gpu_quda,
+    ['cpu-clover']  = wuppertal_smear_cpu_clover,
+  }
+  function wuppertal_smear_spread_axis(U, alpha, N, G, axis, pos, smear_func_bkend)
+    local tt
+    local L = latvec_lattice(U)
+    latvec_lattice(G, L)
+    assert(0 <= axis and axis < #L)
+
+    local xG
+    tt = timer('fastsmear:conv2array')
+    if ('lattice.dirac.propagator' == type(G)) then xG = dp2dfl(G)
+    else error(string.format("unsupported type='%s'", type(G))) end
+    tt('done')
+    assert('table' == type(xG))
+    local l_xG = #xG
+
+    tt = timer('fastsmear:make_maps')
+    local map_sc, map_gt, map_ss, Ldst = hyperslab_map_bidir(
+        L, pos, 1, l_xG, axis, {network='copy'})                       ; tt('done')
+    printf("fastsmear:Ldst=%s\n", tostring(Ldst))
+    
+    tt = timer('fastsmear:map_gauge')
+    local U_map = latvec_apply(map_sc, U)                             ; tt('done')
+    tt = timer('fastsmear:map_field')
+    local xG_map = scatter_subset_array(map_sc, map_ss, xG)           ; tt('done')
+    tt = timer('fastsmear:wup_smear')
+    print_obj('xG_sm_map')
+    local xG_sm_map = latvec_apply(
+        function(x) 
+          return smear_func_bkend(U_map, alpha, N, x, axis) 
+        end,
+        xG_map)  
+    tt('done')
+    
+    tt = timer('fastsmear:unmap_field')                               ; tt('done')
+    local xG_sm = gather_subset_array(map_gt, map_ss, xG_sm_map)
+    tt = timer('fastsmear:conv2field')
+    local G_sm
+    if ('lattice.dirac.propagator' == type(G)) then G_sm = dfl2dp(xG_sm)
+    else error(string.format("unsupported type='%s'", type(G))) end
+    tt('done')
+    return G_sm
+  end
+
+  function make_smear_func(L, opt)
+    local typestr = opt.type
+    local boost = nil
+    local boost_scal = opt.boost_scal or 1.
+    if opt.boost then 
+--      boost = list_scal(boost_scal, opt.boost)
+
+    boost = {boost_scal*opt.boost[1],boost_scal*opt.boost[2],boost_scal*opt.boost[3],boost_scal*opt.boost[4]}
+
+    printf('momentum smearing with ( %s %s %s %s )\n',tostring(boost[1]),tostring(boost[2]),tostring(boost[3]),tostring(boost[4]))
+
+
+    end
+    local t_axis = opt.t_axis or -1
+    if 'coulgauss' == typestr then
+      local coulomb_G = assert(opt.coulomb_G)
+      local gauss_W   = assert(opt.gauss_W or opt.width)
+      local width = {}
+      for mu = 0, #L - 1 do 
+        if t_axis == mu then width[1+mu] = 0. else width[1+mu] = gauss_W end
+      end
+      return make_gauss_smear_func(L, width, coulomb_G, boost)
+    elseif 'coulexp' == typestr then
+      local coulomb_G = assert(opt.coulomb_G)
+      local exp_W   = assert(opt.exp_W or opt.width)
+      local width = {}
+      for mu = 0, #L - 1 do 
+        if t_axis == mu then width[1+mu] = 0. else width[1+mu] = exp_W end
+      end
+      return make_exp_smear_func(L, width, coulomb_G, boost)
+    elseif 'wuppertal' == typestr then
+      local wup_U = assert(opt.wup_U)
+      if boost then
+        wup_U = gauge_copy(wup_U)
+        for mu = 0, #L-1 do 
+          local ph = -2. * math.pi / L[mu] * boost[1+mu]
+          local phL = L:Complex(complex(math.cos(ph), math.sin(ph)))
+          wup_U[1+mu] = wup_U[1+mu] * phL
+        end
+      end
+      local wup_N = assert(opt.wup_N)
+      local wup_alpha = assert(opt.wup_alpha)
+      return function(x, tabopt)
+        -- tabopt.pos = (list of) time slice to do smearing
+        tabopt = tabopt or {}
+        local pos = tabopt.pos or tabopt.t_slice
+        -- XXX uses current setting, not at the moment of creation or package load
+        -- local backend_lap = rcparams.backend.laplacian or 'cpu'
+        local backend_lap = 'cpu'
+        local smear_func_bkend = wuppertal_smear_bkend[backend_lap]
+        if nil == smear_func_bkend then 
+          error(string.format("not implemented backend='%s'", backend_lap)) 
+        end
+        local res
+        local tt = timer(string.format('smear[%s]', backend_lap))
+        if pos then 
+          res = wuppertal_smear_spread_axis(wup_U, wup_alpha, wup_N, x, t_axis, 
+              pos, smear_func_bkend)
+        else 
+          res = smear_func_bkend(wup_U, wup_alpha, wup_N, x, t_axis) 
+        end
+        tt('done')
+        return res
+      end
+    else error(string.format("unknown smear type='%s'", typestr)) end
+  end
+end

@@ -1,0 +1,71 @@
+DML_partition_in times: read 0.33  send 0.00  total 0.37
+src 0 0 0 0 
+2pt
+DML_partition_in times: read 1.09  send 0.00  total 1.21
+DML_partition_in times: read 1.05  send 0.00  total 1.18
+3pt
+DML_partition_in times: read 1.06  send 0.00  total 1.19
+DML_partition_in times: read 1.05  send 0.00  total 1.19
+src 8 0 0 0 
+2pt
+DML_partition_in times: read 1.06  send 0.00  total 1.18
+DML_partition_in times: read 1.07  send 0.00  total 1.19
+3pt
+DML_partition_in times: read 1.07  send 0.00  total 1.19
+DML_partition_in times: read 1.08  send 0.00  total 1.20
+src 16 0 0 0 
+2pt
+DML_partition_in times: read 1.08  send 0.00  total 1.20
+DML_partition_in times: read 1.09  send 0.00  total 1.22
+3pt
+DML_partition_in times: read 1.10  send 0.00  total 1.23
+DML_partition_in times: read 1.09  send 0.00  total 1.21
+src 24 0 0 0 
+2pt
+DML_partition_in times: read 1.08  send 0.00  total 1.20
+DML_partition_in times: read 1.10  send 0.00  total 1.23
+3pt
+DML_partition_in times: read 1.06  send 0.00  total 1.19
+DML_partition_in times: read 1.08  send 0.00  total 1.20
+src 0 8 0 0 
+2pt
+DML_partition_in times: read 1.08  send 0.00  total 1.21
+DML_partition_in times: read 1.06  send 0.00  total 1.18
+3pt
+DML_partition_in times: read 1.06  send 0.00  total 1.18
+DML_partition_in times: read 1.09  send 0.00  total 1.22
+src 0 16 0 0 
+2pt
+DML_partition_in times: read 1.08  send 0.00  total 1.21
+DML_partition_in times: read 1.07  send 0.00  total 1.20
+3pt
+DML_partition_in times: read 1.08  send 0.00  total 1.21
+DML_partition_in times: read 1.05  send 0.00  total 1.17
+src 0 24 0 0 
+2pt
+DML_partition_in times: read 1.09  send 0.00  total 1.21
+DML_partition_in times: read 1.07  send 0.00  total 1.19
+3pt
+DML_partition_in times: read 1.09  send 0.00  total 1.21
+DML_partition_in times: read 1.06  send 0.00  total 1.18
+src 0 0 8 0 
+2pt
+DML_partition_in times: read 1.10  send 0.00  total 1.22
+DML_partition_in times: read 1.07  send 0.00  total 1.19
+3pt
+DML_partition_in times: read 1.07  send 0.00  total 1.19
+DML_partition_in times: read 1.07  send 0.00  total 1.20
+src 0 0 16 0 
+2pt
+DML_partition_in times: read 1.08  send 0.00  total 1.20
+DML_partition_in times: read 1.07  send 0.00  total 1.19
+3pt
+DML_partition_in times: read 1.08  send 0.00  total 1.20
+DML_partition_in times: read 1.14  send 0.00  total 1.26
+src 0 0 24 0 
+2pt
+DML_partition_in times: read 1.09  send 0.00  total 1.21
+DML_partition_in times: read 1.17  send 0.00  total 1.30
+3pt
+DML_partition_in times: read 1.17  send 0.00  total 1.29
+DML_partition_in times: read 1.08  send 0.00  total 1.20
